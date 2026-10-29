@@ -154,7 +154,11 @@ def test_restore_does_not_restore_capabilities() -> None:
     assert asyncio.run(store.get(successor.id)) == successor
 
 
-@pytest.mark.parametrize("bad", ["not base64!", base64.b64encode(b"{}").decode(), "A" * 800_001])
+@pytest.mark.parametrize(
+    "bad",
+    ["not base64!", base64.b64encode(b"{}").decode(), "A" * 800_001],
+    ids=["invalid-base64", "invalid-json", "oversized-data"],
+)
 def test_corrupt_storage_fails_closed(bad: str) -> None:
     store, fixture = storage()
     secret = next(iter(fixture.objects.values()))
