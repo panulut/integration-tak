@@ -49,3 +49,49 @@ def test_integration_registration(overlay: str) -> None:
         }
         assert manifest_images == set(component["images"])
         assert not {"API_IMAGE", "OPERATOR_IMAGE"} & {item["name"] for item in package["variables"]}
+
+
+@pytest.mark.parametrize(
+    "overlay",
+    [
+        "integration",
+        "overlays/local-dev",
+        "overlays/production",
+    ],
+)
+def test_deployment_security_context(overlay: str) -> None:
+    kubectl = shutil.which("kubectl")
+    if kubectl is None:
+        pytest.skip("kubectl is required to render deployment manifests")
+
+    root = Path(__file__).resolve().parents[1]
+    rendered = subprocess.check_output(
+        [kubectl, "kustomize", str(root / "k8s" / overlay)],
+        text=True,
+        timeout=30,
+    )
+
+    resources = list(yaml.safe_load_all(rendered))
+    deployments = [item for item in resources if item["kind"] == "Deployment"]
+
+    assert len(deployments) == 2
+
+    for deployment in deployments:
+        pod_spec = deployment["spec"]["template"]["spec"]
+
+        assert pod_spec["securityContext"]["runAsNonRoot"] is True
+        assert pod_spec["securityContext"]["seccompProfile"]["type"] == "RuntimeDefault"
+        assert pod_spec["serviceAccountName"]
+
+        for container in pod_spec["containers"]:
+            security = container["securityContext"]
+
+            assert security["allowPrivilegeEscalation"] is False
+            assert security["readOnlyRootFilesystem"] is True
+            assert security["capabilities"]["drop"] == ["ALL"]
+
+            resources_config = container["resources"]
+            assert resources_config["requests"]["cpu"]
+            assert resources_config["requests"]["memory"]
+            assert resources_config["limits"]["cpu"]
+            assert resources_config["limits"]["memory"]
